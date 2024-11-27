@@ -2,20 +2,10 @@ const express = require('express');
 const multer = require('multer');
 const uuid = require('uuid').v4;
 const tf = require('@tensorflow/tfjs-node');
-const { Firestore } = require('@google-cloud/firestore');
-const admin = require('firebase-admin');
-const serviceAccount = require('./path/to/serviceAccountKey.json'); // Sesuaikan path
 
-// Inisialisasi admin SDK untuk Firestore
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
-
-// Inisialisasi Firestore
-const firestore = admin.firestore();
-
-// Variabel global untuk menyimpan model
+// Variabel global untuk menyimpan model dan riwayat prediksi
 let model;
+let predictionHistories = []; // Menyimpan riwayat prediksi dalam memori
 
 // Fungsi untuk memuat model dari Google Cloud Storage
 const loadModel = async () => {
@@ -46,7 +36,7 @@ const preprocessImage = (fileBuffer) => {
 loadModel();
 
 // Inisialisasi aplikasi Express
-const app = express(); // <-- Ini bagian yang hilang
+const app = express();
 
 // Konfigurasi multer untuk menangani file upload dengan batas ukuran 1MB
 const upload = multer({
@@ -88,23 +78,14 @@ app.post('/predict', upload.single('image'), async (req, res) => {
     const id = uuid();
     const createdAt = new Date().toISOString();
 
-    // Simpan data prediksi ke Firestore
-    try {
-      await firestore.collection('prediction').add({
-        id,
-        result,
-        suggestion,
-        createdAt,
-      });
-      console.log('Data saved to Firestore');
-    } catch (firestoreError) {
-      console.error('Error saving to Firestore:', firestoreError); // Log error Firestore
-      return res.status(500).json({
-        status: 'fail',
-        message: 'Terjadi kesalahan saat menyimpan ke Firestore',
-        error: firestoreError.message,
-      });
-    }
+    // Simpan data prediksi ke riwayat
+    predictionHistories.push({
+      id,
+      result,
+      suggestion,
+      createdAt,
+    });
+    console.log('Data saved to memory');
 
     // Kirim respons
     return res.status(200).json({
@@ -128,29 +109,20 @@ app.post('/predict', upload.single('image'), async (req, res) => {
 });
 
 // Endpoint untuk mengambil riwayat prediksi
-app.get('/predict/histories', async (req, res) => {
-    try {
-      // Ambil semua dokumen dari koleksi `prediction`
-      const snapshot = await firestore.collection('prediction').get();
-  
-      // Format data
-      const histories = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        history: doc.data(),
-      }));
-  
-      // Kirim respons
-      return res.status(200).json({
-        status: 'success',
-        data: histories,
-      });
-    } catch (error) {
-      console.error('Error fetching prediction histories:', error);
-      return res.status(500).json({
-        status: 'fail',
-        message: 'Terjadi kesalahan dalam mengambil riwayat prediksi',
-      });
-    }
+app.get('/predict/histories', (req, res) => {
+  try {
+    // Kirim respons dengan riwayat prediksi
+    return res.status(200).json({
+      status: 'success',
+      data: predictionHistories,
+    });
+  } catch (error) {
+    console.error('Error fetching prediction histories:', error);
+    return res.status(500).json({
+      status: 'fail',
+      message: 'Terjadi kesalahan dalam mengambil riwayat prediksi',
+    });
+  }
 });
 
 // Middleware untuk menangani error payload terlalu besar (413)
