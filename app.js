@@ -2,6 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const uuid = require('uuid').v4;
 const tf = require('@tensorflow/tfjs-node');
+const { Firestore } = require('@google-cloud/firestore');  // Inisialisasi Firestore
+const firestore = new Firestore();  // Inisialisasi Firestore
 
 // Variabel global untuk menyimpan model
 let model;
@@ -41,7 +43,6 @@ const app = express();
 const upload = multer({
   limits: { fileSize: 1000000 },
   fileFilter: (req, file, cb) => {
-    // Filter file untuk memastikan hanya gambar yang diterima
     if (!file.mimetype.startsWith('image/')) {
       return cb(new Error('File is not an image'));
     }
@@ -77,13 +78,14 @@ app.post('/predict', upload.single('image'), async (req, res) => {
     const id = uuid();
     const createdAt = new Date().toISOString();
 
+    // Simpan data prediksi ke Firestore
     await firestore.collection('prediction').add({
-        id,
-        result,
-        suggestion,
-        createdAt,
+      id,
+      result,
+      suggestion,
+      createdAt,
     });
-    
+
     // Kirim respons
     return res.status(200).json({
       status: 'success',
@@ -104,29 +106,31 @@ app.post('/predict', upload.single('image'), async (req, res) => {
   }
 });
 
+// Endpoint untuk mengambil riwayat prediksi
 app.get('/predict/histories', async (req, res) => {
-    try {
-      // Ambil semua dokumen dari koleksi `prediction_histories`
-      const snapshot = await firestore.collection('prediction').get();
-  
-      // Format data
-      const histories = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        history: doc.data(),
-      }));
-  
-      // Kirim respons
-      return res.status(200).json({
-        status: 'success',
-        data: histories,
-      });
-    } catch (error) {
-      console.error('Error fetching prediction histories:', error);
-      return res.status(500).json({
-        status: 'fail',
-        message: 'Terjadi kesalahan dalam mengambil riwayat prediksi',
-      });
-    }
+  try {
+    // Ambil semua dokumen dari koleksi 'prediction'
+    const snapshot = await firestore.collection('prediction').get();
+
+    // Format data
+    const histories = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      history: doc.data(),
+    }));
+
+    // Kirim respons
+    return res.status(200).json({
+      status: 'success',
+      data: histories,
+    });
+  } catch (error) {
+    console.error('Error fetching prediction histories:', error);
+    return res.status(500).json({
+      status: 'fail',
+      message: 'Terjadi kesalahan dalam mengambil riwayat prediksi',
+      error: error.message,
+    });
+  }
 });
 
 // Middleware untuk menangani error payload terlalu besar (413)
