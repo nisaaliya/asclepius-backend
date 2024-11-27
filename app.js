@@ -77,6 +77,13 @@ app.post('/predict', upload.single('image'), async (req, res) => {
     const id = uuid();
     const createdAt = new Date().toISOString();
 
+    await firestore.collection('prediction').add({
+        id,
+        result,
+        suggestion,
+        createdAt,
+    });
+    
     // Kirim respons
     return res.status(200).json({
       status: 'success',
