@@ -1,0 +1,16 @@
+runtime: nodejs18
+env: standard
+
+handlers:
+  - url: /src/scripts
+    static_dir: src/scripts
+
+  - url: /src/styles
+    static_dir: src/styles
+
+  - url: /index.html
+    static_files: index.html
+    upload: index.html
+
+  - url: /.*  # Menangani URL selain yang ditentukan sebelumnya
+    script: auto
