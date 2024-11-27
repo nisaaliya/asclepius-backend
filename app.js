@@ -21,7 +21,13 @@ const loadModel = async () => {
   const bucketName = 'bucketnisa27';
   const fileName = 'submissions-model/model.json';
   const modelURL = `gs://${bucketName}/${fileName}`;
-  model = await tf.loadGraphModel(`https://storage.googleapis.com/${fileName}`);
+  model = await tf.loadGraphModel(`https://storage.googleapis.com/${bucketName}/${fileName}`);
+  try {
+    model = await tf.loadGraphModel(modelURL); // Muat model
+    console.log('Model loaded successfully');
+  } catch (error) {
+    console.error('Error loading model:', error);
+  }
 };
 loadModel();
 
