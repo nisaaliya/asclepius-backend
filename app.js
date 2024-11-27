@@ -36,7 +36,18 @@ loadModel();
 
 // Inisialisasi aplikasi Express
 const app = express();
-const upload = multer({ limits: { fileSize: 1000000 } }); // Batas ukuran file 1MB
+
+// Konfigurasi multer untuk menangani file upload dengan batas ukuran 1MB
+const upload = multer({
+  limits: { fileSize: 1000000 },
+  fileFilter: (req, file, cb) => {
+    // Filter file untuk memastikan hanya gambar yang diterima
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('File is not an image'));
+    }
+    cb(null, true);
+  },
+});
 
 // Endpoint prediksi
 app.post('/predict', upload.single('image'), async (req, res) => {
@@ -52,7 +63,6 @@ app.post('/predict', upload.single('image'), async (req, res) => {
 
     // Preprocessing gambar
     const tensor = preprocessImage(file.buffer);
-    console.log('Input Tensor Shape:', tensor.shape);
 
     // Prediksi menggunakan model
     const predictions = model.predict(tensor).dataSync();
@@ -61,12 +71,14 @@ app.post('/predict', upload.single('image'), async (req, res) => {
     // Interpretasi hasil
     const result = predictions[0] > 0.5 ? 'Cancer' : 'Non-cancer';
     const suggestion =
-      result === 'Cancer' ? 'Segera periksa ke dokter!' : 'Anda sehat!';
+      result === 'Cancer'
+        ? 'Segera periksa ke dokter!'
+        : 'Penyakit kanker tidak terdeteksi.';
     const id = uuid();
     const createdAt = new Date().toISOString();
 
     // Kirim respons
-    res.status(200).json({
+    return res.status(200).json({
       status: 'success',
       message: 'Model is predicted successfully',
       data: {
@@ -78,11 +90,28 @@ app.post('/predict', upload.single('image'), async (req, res) => {
     });
   } catch (error) {
     console.error('Error during prediction:', error);
-    res.status(500).json({
+    return res.status(400).json({
       status: 'fail',
       message: 'Terjadi kesalahan dalam melakukan prediksi',
     });
   }
+});
+
+// Middleware untuk menangani error payload terlalu besar (413)
+app.use((err, req, res, next) => {
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({
+      status: 'fail',
+      message: 'Payload content length greater than maximum allowed: 1000000',
+    });
+  }
+  if (err.message === 'File is not an image') {
+    return res.status(400).json({
+      status: 'fail',
+      message: 'File is not a valid image',
+    });
+  }
+  next(err);
 });
 
 // Jalankan server
