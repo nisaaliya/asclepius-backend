@@ -1,39 +1,47 @@
 const express = require('express');
 const multer = require('multer');
 const uuid = require('uuid').v4;
-const { Storage } = require('@google-cloud/storage');
-const { Firestore } = require('@google-cloud/firestore');
 const tf = require('@tensorflow/tfjs-node');
 
-// Initialize Firestore and Cloud Storage
-const firestore = new Firestore();
-const storage = new Storage();
-
-// App setup
-const app = express();
-const upload = multer({ limits: { fileSize: 1000000 } });
-
-app.use(express.json());
-
-// Load model from Cloud Storage
+// Variabel global untuk menyimpan model
 let model;
+
+// Fungsi untuk memuat model dari Google Cloud Storage
 const loadModel = async () => {
   const bucketName = 'bucketnisa27';
   const fileName = 'submissions-model/model.json';
-  const modelURL = `gs://${bucketName}/${fileName}`;
-  model = await tf.loadGraphModel(`https://storage.googleapis.com/${bucketName}/${fileName}`);
+  const modelURL = `https://storage.googleapis.com/${bucketName}/${fileName}`; // URL lengkap model
   try {
-    model = await tf.loadGraphModel(modelURL); // Muat model
+    console.log('Loading model from:', modelURL);
+    model = await tf.loadGraphModel(modelURL); // Memuat model
     console.log('Model loaded successfully');
   } catch (error) {
     console.error('Error loading model:', error);
+    process.exit(1); // Hentikan server jika model gagal dimuat
   }
 };
+
+// Fungsi untuk preprocessing gambar
+const preprocessImage = (fileBuffer) => {
+  const tensor = tf.node
+    .decodeImage(fileBuffer) // Decode buffer gambar
+    .resizeNearestNeighbor([224, 224]) // Ubah ukuran ke 224x224 (sesuai input model)
+    .expandDims() // Tambahkan dimensi batch
+    .toFloat(); // Ubah tipe data ke float32
+  return tensor;
+};
+
+// Mulai memuat model saat server dijalankan
 loadModel();
 
-// Prediction endpoint
+// Inisialisasi aplikasi Express
+const app = express();
+const upload = multer({ limits: { fileSize: 1000000 } }); // Batas ukuran file 1MB
+
+// Endpoint prediksi
 app.post('/predict', upload.single('image'), async (req, res) => {
   try {
+    // Periksa apakah ada file
     const file = req.file;
     if (!file) {
       return res.status(400).json({
@@ -42,27 +50,22 @@ app.post('/predict', upload.single('image'), async (req, res) => {
       });
     }
 
-    const imageBuffer = file.buffer;
-    const tensor = tf.node.decodeImage(imageBuffer)
-      .resizeNearestNeighbor([224, 224])
-      .expandDims()
-      .toFloat();
+    // Preprocessing gambar
+    const tensor = preprocessImage(file.buffer);
+    console.log('Input Tensor Shape:', tensor.shape);
 
+    // Prediksi menggunakan model
     const predictions = model.predict(tensor).dataSync();
+    console.log('Predictions:', predictions);
+
+    // Interpretasi hasil
     const result = predictions[0] > 0.5 ? 'Cancer' : 'Non-cancer';
     const suggestion =
       result === 'Cancer' ? 'Segera periksa ke dokter!' : 'Anda sehat!';
     const id = uuid();
     const createdAt = new Date().toISOString();
 
-    // Save to Firestore
-    await firestore.collection('predictions').doc(id).set({
-      id,
-      result,
-      suggestion,
-      createdAt,
-    });
-
+    // Kirim respons
     res.status(200).json({
       status: 'success',
       message: 'Model is predicted successfully',
@@ -74,13 +77,14 @@ app.post('/predict', upload.single('image'), async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(400).json({
+    console.error('Error during prediction:', error);
+    res.status(500).json({
       status: 'fail',
       message: 'Terjadi kesalahan dalam melakukan prediksi',
     });
   }
 });
 
-// Start server
+// Jalankan server
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
