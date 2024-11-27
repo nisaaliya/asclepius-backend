@@ -100,7 +100,7 @@ app.post('/predict', upload.single('image'), async (req, res) => {
 app.get('/predict/histories', async (req, res) => {
     try {
       // Ambil semua dokumen dari koleksi `prediction_histories`
-      const snapshot = await firestore.collection('prediction_histories').get();
+      const snapshot = await firestore.collection('prediction').get();
   
       // Format data
       const histories = snapshot.docs.map((doc) => ({
