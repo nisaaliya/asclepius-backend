@@ -2,6 +2,10 @@ const express = require('express');
 const multer = require('multer');
 const uuid = require('uuid').v4;
 const tf = require('@tensorflow/tfjs-node');
+const { Firestore } = require('@google-cloud/firestore');
+
+// Inisialisasi Firestore
+const firestore = new Firestore();
 
 // Variabel global untuk menyimpan model
 let model;
@@ -10,24 +14,24 @@ let model;
 const loadModel = async () => {
   const bucketName = 'bucketnisa27';
   const fileName = 'submissions-model/model.json';
-  const modelURL = `https://storage.googleapis.com/${bucketName}/${fileName}`; // URL lengkap model
+  const modelURL = `https://storage.googleapis.com/${bucketName}/${fileName}`;
   try {
     console.log('Loading model from:', modelURL);
-    model = await tf.loadGraphModel(modelURL); // Memuat model
+    model = await tf.loadGraphModel(modelURL);
     console.log('Model loaded successfully');
   } catch (error) {
     console.error('Error loading model:', error);
-    process.exit(1); // Hentikan server jika model gagal dimuat
+    process.exit(1);
   }
 };
 
 // Fungsi untuk preprocessing gambar
 const preprocessImage = (fileBuffer) => {
   const tensor = tf.node
-    .decodeImage(fileBuffer) // Decode buffer gambar
-    .resizeNearestNeighbor([224, 224]) // Ubah ukuran ke 224x224 (sesuai input model)
-    .expandDims() // Tambahkan dimensi batch
-    .toFloat(); // Ubah tipe data ke float32
+    .decodeImage(fileBuffer)
+    .resizeNearestNeighbor([224, 224])
+    .expandDims()
+    .toFloat();
   return tensor;
 };
 
@@ -36,12 +40,9 @@ loadModel();
 
 // Inisialisasi aplikasi Express
 const app = express();
-
-// Konfigurasi multer untuk menangani file upload dengan batas ukuran 1MB
 const upload = multer({
   limits: { fileSize: 1000000 },
   fileFilter: (req, file, cb) => {
-    // Filter file untuk memastikan hanya gambar yang diterima
     if (!file.mimetype.startsWith('image/')) {
       return cb(new Error('File is not an image'));
     }
@@ -52,7 +53,6 @@ const upload = multer({
 // Endpoint prediksi
 app.post('/predict', upload.single('image'), async (req, res) => {
   try {
-    // Periksa apakah ada file
     const file = req.file;
     if (!file) {
       return res.status(400).json({
@@ -61,14 +61,10 @@ app.post('/predict', upload.single('image'), async (req, res) => {
       });
     }
 
-    // Preprocessing gambar
     const tensor = preprocessImage(file.buffer);
-
-    // Prediksi menggunakan model
     const predictions = model.predict(tensor).dataSync();
     console.log('Predictions:', predictions);
 
-    // Interpretasi hasil
     const result = predictions[0] > 0.5 ? 'Cancer' : 'Non-cancer';
     const suggestion =
       result === 'Cancer'
@@ -77,7 +73,14 @@ app.post('/predict', upload.single('image'), async (req, res) => {
     const id = uuid();
     const createdAt = new Date().toISOString();
 
-    // Kirim respons
+    // Simpan ke Firestore
+    await firestore.collection('predictions').doc(id).set({
+      id,
+      result,
+      suggestion,
+      createdAt,
+    });
+
     return res.status(200).json({
       status: 'success',
       message: 'Model is predicted successfully',
@@ -93,6 +96,42 @@ app.post('/predict', upload.single('image'), async (req, res) => {
     return res.status(400).json({
       status: 'fail',
       message: 'Terjadi kesalahan dalam melakukan prediksi',
+    });
+  }
+});
+
+// Endpoint riwayat prediksi
+app.get('/predict/histories', async (req, res) => {
+  try {
+    // Ambil semua dokumen dari collection "predictions"
+    const snapshot = await firestore.collection('predictions').get();
+    if (snapshot.empty) {
+      return res.status(200).json({
+        status: 'success',
+        data: [],
+      });
+    }
+
+    // Format data ke dalam array
+    const histories = [];
+    snapshot.forEach((doc) => {
+      histories.push({
+        id: doc.id,
+        history: {
+          ...doc.data(),
+        },
+      });
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      data: histories,
+    });
+  } catch (error) {
+    console.error('Error fetching histories:', error);
+    return res.status(500).json({
+      status: 'fail',
+      message: 'Failed to fetch prediction histories',
     });
   }
 });
